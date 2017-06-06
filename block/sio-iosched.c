@@ -19,7 +19,6 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/version.h>
-#include <linux/slab.h>
 
 enum { ASYNC, SYNC };
 
@@ -30,8 +29,8 @@ static const int sync_write_expire = 2 * HZ;	/* max time before a sync write is 
 static const int async_read_expire  =  4 * HZ;	/* ditto for async, these limits are SOFT! */
 static const int async_write_expire = 16 * HZ;	/* ditto for async, these limits are SOFT! */
 
-static const int writes_starved = 2;		/* max times reads can starve a write */
-static const int fifo_batch     = 8;		/* # of sequential requests treated as one
+static const int writes_starved = 1;		/* max times reads can starve a write */
+static const int fifo_batch     = 1;		/* # of sequential requests treated as one
 						   by the above parameters. For throughput. */
 
 /* Elevator data */
@@ -243,26 +242,15 @@ sio_latter_request(struct request_queue *q, struct request *rq)
 	return list_entry(rq->queuelist.next, struct request, queuelist);
 }
 
-static int sio_init_queue(struct request_queue *q, struct elevator_type *e)
+static void *
+sio_init_queue(struct request_queue *q)
 {
 	struct sio_data *sd;
-	struct elevator_queue *eq;
-
-	eq = elevator_alloc(q, e);
-	if (!eq)
-		return -ENOMEM;
 
 	/* Allocate structure */
 	sd = kmalloc_node(sizeof(*sd), GFP_KERNEL, q->node);
-	if (!sd) {
-		kobject_put(&eq->kobj);
-		return -ENOMEM;
-	}
-	eq->elevator_data = sd;
-
-	spin_lock_irq(q->queue_lock);
-	q->elevator = eq;
-	spin_unlock_irq(q->queue_lock);
+	if (!sd)
+		return NULL;
 
 	/* Initialize fifo lists */
 	INIT_LIST_HEAD(&sd->fifo_list[SYNC][READ]);
@@ -278,7 +266,7 @@ static int sio_init_queue(struct request_queue *q, struct elevator_type *e)
 	sd->fifo_expire[ASYNC][WRITE] = async_write_expire;
 	sd->fifo_batch = fifo_batch;
 
-	return 0;
+	return sd;
 }
 
 static void
